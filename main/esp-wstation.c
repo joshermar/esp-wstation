@@ -17,7 +17,7 @@
 #define GPIO_DHT    26
 #define TEMP_POLINT 60000 / portTICK_PERIOD_MS
 
-#define FARRENHEIT(t) ((t/10) * 9 / 5.0  + 32)
+#define FAHRENHEIT(t) ((t/10.0f) * 9.0f / 5.0f  + 32.0f)
 #define UNITS(x) (x / 10)
 #define DCMLS(x) abs(x % 10)
 
@@ -165,7 +165,7 @@ esp_err_t get_root(httpd_req_t *req)
 
     // Format root page and send as response
     char root_page[256];
-    sprintf(root_page, FMT_ROOT, UNITS(temp), DCMLS(temp), FARRENHEIT(temp), UNITS(humidity), DCMLS(humidity));
+    sprintf(root_page, FMT_ROOT, UNITS(temp), DCMLS(temp), FAHRENHEIT(temp), UNITS(humidity), DCMLS(humidity));
 
     ESP_LOGI(TAG, "HTTP GET\n%s", root_page);
 
