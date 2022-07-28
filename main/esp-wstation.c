@@ -21,7 +21,7 @@
 #define UNITS(x) (x / 10)
 #define DCMLS(x) abs(x % 10)
 
-#define FMT_ROOT HOSTNAME "\n\nTemperature: %d.%d`C (%0.2f`F)\nHumidity: %d.%d%%\n"
+#define FMT_ROOT HOSTNAME "\n\nTemperature: %d.%d`C / %0.2f`F\nHumidity: %d.%d%%\n"
 #define FMT_JSON "{\"temp\": %d.%d, \"humidity\": %d.%d}"
 
 int16_t temp, humidity;
