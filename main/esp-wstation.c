@@ -149,9 +149,10 @@ void poll_weather()
             ESP_LOGE(TAG, "Could not determine temperature and humidty: %s",
                 esp_err_to_name(dht_err));
         }
-        vTaskDelay(TEMP_POLINT);
 
-        ESP_LOGI(TAG, "Temp: %d.%d Humidity: %d.%d", UNITS(temp), DCMLS(temp), UNITS(humidity), DCMLS(humidity));
+        ESP_LOGI(TAG, "Latest sensor data: temp=%d humidity=%d", temp, humidity);
+
+        vTaskDelay(TEMP_POLINT);
     }
 }
 
