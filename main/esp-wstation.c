@@ -14,7 +14,7 @@
 #include "dht.h"
 
 #define TAG         "esp-wstation"
-#define GPIO_DHT    26
+#define SENOR_PIN   4
 #define TEMP_POLINT 60000 / portTICK_PERIOD_MS
 
 #define FAHRENHEIT(t) ((t/10.0f) * 9.0f / 5.0f  + 32.0f)
@@ -142,7 +142,7 @@ void poll_weather()
 {
     esp_err_t dht_err;
     for (;;) {
-        dht_err = dht_read_data(DHT_TYPE_AM2301, GPIO_DHT, &humidity, &temp);
+        dht_err = dht_read_data(DHT_TYPE_AM2301, SENOR_PIN, &humidity, &temp);
 
         // TODO: Figure out a better way to signal that current temp is likely out of date
         if (dht_err != ESP_OK) {
