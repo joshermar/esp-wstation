@@ -14,7 +14,7 @@
 #include "dht.h"
 
 #define TAG         "esp-wstation"
-#define SENOR_PIN   4
+#define PIN_SENSOR  4
 #define TEMP_POLINT 60000 / portTICK_PERIOD_MS
 
 #define FAHRENHEIT(t) ((t/10.0f) * 9.0f / 5.0f  + 32.0f)
@@ -138,11 +138,11 @@ void init_wifi()
 }
 
 
-void poll_weather()
+void t_poll_sensor()
 {
     esp_err_t dht_err;
     for (;;) {
-        dht_err = dht_read_data(DHT_TYPE_AM2301, SENOR_PIN, &humidity, &temp);
+        dht_err = dht_read_data(DHT_TYPE_AM2301, PIN_SENSOR, &humidity, &temp);
 
         // TODO: Figure out a better way to signal that current temp is likely out of date
         if (dht_err != ESP_OK) {
@@ -173,12 +173,6 @@ esp_err_t get_root(httpd_req_t *req)
     return httpd_resp_send(req, root_page, HTTPD_RESP_USE_STRLEN);
 }
 
-httpd_uri_t uri_get_root = {
-    .uri      = "/",
-    .method   = HTTP_GET,
-    .handler  = get_root,
-    .user_ctx = NULL
-};
 
 esp_err_t get_json(httpd_req_t *req)
 {
@@ -200,30 +194,35 @@ esp_err_t get_json(httpd_req_t *req)
     return httpd_resp_send(req, payload, HTTPD_RESP_USE_STRLEN);
 }
 
-httpd_uri_t uri_get_json = {
-    .uri      = "/json",
-    .method   = HTTP_GET,
-    .handler  = get_json,
-    .user_ctx = NULL
-};
-
-
 void start_webserver(void)
 {
-     // Generate default configuration 
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-
     httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
      // Start the httpd server 
     ESP_ERROR_CHECK(
         httpd_start(&server, &config)
     );
 
+    static httpd_uri_t uri_get_root = {
+        .uri      = "/",
+        .method   = HTTP_GET,
+        .handler  = get_root,
+        .user_ctx = NULL
+    };
+
+    static httpd_uri_t uri_get_json = {
+        .uri      = "/json",
+        .method   = HTTP_GET,
+        .handler  = get_json,
+        .user_ctx = NULL
+    };
+
     // Register handles for URIs
     httpd_register_uri_handler(server, &uri_get_root);
     httpd_register_uri_handler(server, &uri_get_json);
 }
+
 
 void app_main()
 {
@@ -234,7 +233,7 @@ void app_main()
 
     init_wifi();
     
-    xTaskCreate(poll_weather, "poll_weather", 4096, NULL, 5, NULL);
+    xTaskCreate(t_poll_sensor, "t_poll_sensor", 4096, NULL, 5, NULL);
 
     start_webserver();
 }
