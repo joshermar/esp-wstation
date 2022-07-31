@@ -1,8 +1,6 @@
-#include <math.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/event_groups.h>
 
 #include "nvs_flash.h"
 #include "esp_log.h"
@@ -14,17 +12,26 @@
 #include "dht.h"
 
 #define TAG         "esp-wstation"
-#define PIN_SENSOR  4
-#define TEMP_POLINT 60000 / portTICK_PERIOD_MS
 
-#define FAHRENHEIT(t) ((t/10.0f) * 9.0f / 5.0f  + 32.0f)
+#define PIN_LED     2
+#define BLINK_DUR   400
+#define BLINK_RATE  50
+
+#define PIN_SENSOR  4
+#define TEMP_POLINT 60000
+
+#define BLINK(ms) (blink_ms = ms)
+#define DELAY(ms) (vTaskDelay((ms) / portTICK_PERIOD_MS))
+#define FHEIT(t) ((t/10.0f) * 9.0f / 5.0f  + 32.0f)
 #define UNITS(x) (x / 10)
-#define DCMLS(x) abs(x % 10)
+#define DCMLS(x) (abs(x % 10))
 
 #define FMT_ROOT HOSTNAME "\n\nTemperature: %d.%d`C / %0.2f`F\nHumidity: %d.%d%%\n"
 #define FMT_JSON "{\"temp\": %d.%d, \"humidity\": %d.%d}"
 
-int16_t temp, humidity;
+int16_t temp, humidity, blink_ms;
+
+esp_err_t sensor_status;
 
 static void handler_wifi_disconnected(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
@@ -140,58 +147,84 @@ void init_wifi()
 
 void t_poll_sensor()
 {
-    esp_err_t dht_err;
+    
     for (;;) {
-        dht_err = dht_read_data(DHT_TYPE_AM2301, PIN_SENSOR, &humidity, &temp);
+        sensor_status = dht_read_data(DHT_TYPE_AM2301, PIN_SENSOR, &humidity, &temp);
 
-        // TODO: Figure out a better way to signal that current temp is likely out of date
-        if (dht_err != ESP_OK) {
-            ESP_LOGE(TAG, "Could not determine temperature and humidty: %s",
-                esp_err_to_name(dht_err));
+        if (sensor_status != ESP_OK) {
+            ESP_LOGE(TAG, "Could not determine temperature and humidty: %s", esp_err_to_name(sensor_status));
+        } else {
+            ESP_LOGI(TAG, "Latest sensor data: temp=%d humidity=%d", temp, humidity);
         }
 
-        ESP_LOGI(TAG, "Latest sensor data: temp=%d humidity=%d", temp, humidity);
-
-        vTaskDelay(TEMP_POLINT);
+        DELAY(TEMP_POLINT);
     }
+}
+
+
+void t_blink_ctrl()
+{
+    for (;;) {
+        if (blink_ms >= BLINK_RATE) {
+            gpio_set_level(PIN_LED, 1);
+            DELAY(BLINK_RATE/2);
+
+            gpio_set_level(PIN_LED, 0);
+            DELAY(BLINK_RATE/2);
+
+            blink_ms -= BLINK_RATE;
+        } else {
+            DELAY(BLINK_RATE);
+        }
+    }
+}
+
+static esp_err_t http_get(httpd_req_t *req, const char *buf, const char *cont_type)
+{
+    // Blink some lights to let me know something is happening
+    BLINK(400);
+
+    esp_err_t resp_error;
+
+    ESP_LOGI(TAG, "HTTP GET");
+
+    if (sensor_status == ESP_OK) {
+        httpd_resp_set_type(req, cont_type);
+        resp_error = httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
+        ESP_LOGI(TAG, HTTPD_200);
+
+    } else {
+        httpd_resp_set_status(req, HTTPD_500);
+
+        char error_msg[128];
+        sprintf(error_msg, "Sensor error: %s\n", esp_err_to_name(sensor_status));
+
+        resp_error = httpd_resp_send(req, error_msg, HTTPD_RESP_USE_STRLEN);
+        ESP_LOGE(TAG, HTTPD_500);
+    }
+
+    return resp_error;
 }
 
 
 esp_err_t get_root(httpd_req_t *req)
 {
-    // Set Content-Type: text/html
-    ESP_ERROR_CHECK(
-        httpd_resp_set_type(req, "text/plain")
-    );
-
-    // Format root page and send as response
-    char root_page[256];
-    sprintf(root_page, FMT_ROOT, UNITS(temp), DCMLS(temp), FAHRENHEIT(temp), UNITS(humidity), DCMLS(humidity));
-
-    ESP_LOGI(TAG, "HTTP GET\n%s", root_page);
-
-    return httpd_resp_send(req, root_page, HTTPD_RESP_USE_STRLEN);
+    char body[256];
+    sprintf(body, FMT_ROOT, UNITS(temp), DCMLS(temp), FHEIT(temp), UNITS(humidity), DCMLS(humidity));
+    
+    return http_get(req, body, "text/plain");
 }
 
 
 esp_err_t get_json(httpd_req_t *req)
 {
-    // Set Content-Type: application/json
-    ESP_ERROR_CHECK(
-        httpd_resp_set_type(req, "application/json")
-    );
-
     // Enable CORS
-    ESP_ERROR_CHECK(
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*")
-    );
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
-    char payload[256];
-    sprintf(payload, FMT_JSON, UNITS(temp), DCMLS(temp), UNITS(humidity), DCMLS(humidity));
+    char body[256];
+    sprintf(body, FMT_JSON, UNITS(temp), DCMLS(temp), UNITS(humidity), DCMLS(humidity));
 
-    ESP_LOGI(TAG, "HTTP GET\n%s", payload);
-
-    return httpd_resp_send(req, payload, HTTPD_RESP_USE_STRLEN);
+    return http_get(req, body, "application/json");
 }
 
 void start_webserver(void)
@@ -218,7 +251,7 @@ void start_webserver(void)
         .user_ctx = NULL
     };
 
-    // Register handles for URIs
+    // Register handlers for URIs
     httpd_register_uri_handler(server, &uri_get_root);
     httpd_register_uri_handler(server, &uri_get_json);
 }
@@ -231,9 +264,14 @@ void app_main()
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
+    // Set up LED
+    gpio_reset_pin(PIN_LED);
+    gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
+
     init_wifi();
     
     xTaskCreate(t_poll_sensor, "t_poll_sensor", 4096, NULL, 5, NULL);
+    xTaskCreate(t_blink_ctrl, "t_blink_ctrl", 4096, NULL, 5, NULL);
 
     start_webserver();
 }
