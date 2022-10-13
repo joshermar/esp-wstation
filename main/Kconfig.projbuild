@@ -1,0 +1,17 @@
+menu "WIFI"
+    config SSID
+        string SSID
+        default "example_ssid"
+    config PASSWORD
+        string PASSWORD
+        default "example_password"
+endmenu
+
+menu "IO Pins"
+    config PINLED
+        int PINLED
+        default 2
+    config PINSEN
+        int PINSEN
+        default 4
+endmenu

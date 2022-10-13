@@ -13,11 +13,9 @@
 
 #define TAG         "esp-wstation"
 
-#define PIN_LED     2
 #define BLINK_DUR   400
 #define BLINK_RATE  50
 
-#define PIN_SENSOR  4
 #define TEMP_POLINT 60000
 
 #define BLINK(ms) (blink_ms = ms)
@@ -26,17 +24,17 @@
 #define UNITS(x) (x / 10)
 #define DCMLS(x) (abs(x % 10))
 
-#define FMT_ROOT HOSTNAME "\n\nTemperature: %d.%d`C / %0.2f`F\nHumidity: %d.%d%%\n"
+#define FMT_ROOT "%s\n\nTemperature: %d.%d`C / %0.2f`F\nHumidity: %d.%d%%\n"
 #define FMT_JSON "{\"temp\": %d.%d, \"humidity\": %d.%d}"
 
 int16_t temp, humidity, blink_ms;
-
+char *hostname;
 esp_err_t sensor_status;
 
 static void handler_wifi_disconnected(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
 {
-	ESP_LOGW(TAG, "Disconnected from '" WLAN_SSID "'. Attempting to reconnect...");
-	esp_wifi_connect();
+    ESP_LOGW(TAG, "Disconnected from '" CONFIG_SSID "'. Attempting to reconnect...");
+    esp_wifi_connect();
 }
 
 
@@ -48,21 +46,21 @@ static void handler_gotip(void* arg, esp_event_base_t event_base, int32_t event_
 
 void init_wifi()
 {
-	// Create wifi station -- returns pointer to esp-netif instance
-	esp_netif_t *netif = esp_netif_create_default_wifi_sta();
+    // Create wifi station -- returns pointer to esp-netif instance
+    esp_netif_t *netif = esp_netif_create_default_wifi_sta();
 
-	// Setup wifi station with the default wifi configuration
-	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    // Setup wifi station with the default wifi configuration
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(
-    	esp_wifi_init(&cfg));
+        esp_wifi_init(&cfg));
 
     // Init event group
-	EventGroupHandle_t wifi_event_group = xEventGroupCreate();
+    EventGroupHandle_t wifi_event_group = xEventGroupCreate();
 
     esp_event_handler_instance_t wifi_handler_event_instance;
     ESP_ERROR_CHECK(
-    	esp_event_handler_instance_register(
-    		WIFI_EVENT,
+        esp_event_handler_instance_register(
+            WIFI_EVENT,
             WIFI_EVENT_STA_DISCONNECTED,
             &handler_wifi_disconnected,
             NULL,
@@ -72,8 +70,8 @@ void init_wifi()
 
     esp_event_handler_instance_t got_ip_event_instance;
     ESP_ERROR_CHECK(
-    	esp_event_handler_instance_register(
-    		IP_EVENT,
+        esp_event_handler_instance_register(
+            IP_EVENT,
             IP_EVENT_STA_GOT_IP,
             &handler_gotip,
             // Give event group to handler so it can signal that network is ready
@@ -84,14 +82,14 @@ void init_wifi()
 
     // Set wireless mode to station (client)
     ESP_ERROR_CHECK(
-    	esp_wifi_set_mode(WIFI_MODE_STA));
+        esp_wifi_set_mode(WIFI_MODE_STA));
 
     // Set wifi config
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = WLAN_SSID,
-            .password = WLAN_KEY,
-	     .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            .ssid = CONFIG_SSID,
+            .password = CONFIG_PASSWORD,
+         .threshold.authmode = WIFI_AUTH_WPA2_PSK,
             .pmf_cfg = {
                 .capable = true,
                 .required = false
@@ -100,46 +98,39 @@ void init_wifi()
     };
 
     ESP_ERROR_CHECK(
-    	esp_wifi_set_config(WIFI_IF_STA, &wifi_config)
+        esp_wifi_set_config(WIFI_IF_STA, &wifi_config)
     );
 
     // Start the wifi driver
     ESP_ERROR_CHECK(
-    	esp_wifi_start()
+        esp_wifi_start()
     );
 
-    ESP_LOGI(TAG, "Initializing WiFI station with hostname '" HOSTNAME "'");
-
-    // Set hostname
-    ESP_ERROR_CHECK(
-    	esp_netif_set_hostname(netif, HOSTNAME)
-    );
-
-    ESP_LOGI(TAG, "Attempting to connect to SSID '" WLAN_SSID "'...");
-	esp_wifi_connect();
+    ESP_LOGI(TAG, "Attempting to connect to SSID '" CONFIG_SSID "'...");
+    esp_wifi_connect();
 
     // Wait "for a bit" ;) -- until I have an IP
     EventBits_t wait_bits = xEventGroupWaitBits(
-    	wifi_event_group,  // Event group being tested
-        1,			       // Bit(s) to wait for
+        wifi_event_group,  // Event group being tested
+        1,                 // Bit(s) to wait for
         pdFALSE,
         pdFALSE,
         portMAX_DELAY      // Amount of time to wait
     );
 
+    // Get interface hostname
+    ESP_ERROR_CHECK(
+        esp_netif_get_hostname(netif, (const char **) &hostname)
+    );
+
     // Not sure what else to do at this point
     if (! wait_bits) {
-    	ESP_LOGE(TAG, "Tragically unable to connect to network. I will die now ;(");
-    	exit(1);
+        ESP_LOGE(TAG, "Tragically unable to connect to network. I will die now ;(");
+        exit(1);
     }
 
-    // Is there a good reason to unregister this? What if Wifi gets disconnected?
-    // ESP_ERROR_CHECK(
-    //    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_handler_event_instance)
-    // );
-
     ESP_ERROR_CHECK(
-    	esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, got_ip_event_instance)
+        esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, got_ip_event_instance)
     );
     vEventGroupDelete(wifi_event_group);
 }
@@ -149,7 +140,7 @@ void t_poll_sensor()
 {
     
     for (;;) {
-        sensor_status = dht_read_data(DHT_TYPE_AM2301, PIN_SENSOR, &humidity, &temp);
+        sensor_status = dht_read_data(DHT_TYPE_AM2301, CONFIG_PINSEN, &humidity, &temp);
 
         if (sensor_status != ESP_OK) {
             ESP_LOGE(TAG, "Could not determine temperature and humidty: %s", esp_err_to_name(sensor_status));
@@ -166,10 +157,10 @@ void t_blink_ctrl()
 {
     for (;;) {
         if (blink_ms >= BLINK_RATE) {
-            gpio_set_level(PIN_LED, 1);
+            gpio_set_level(CONFIG_PINLED, 1);
             DELAY(BLINK_RATE/2);
 
-            gpio_set_level(PIN_LED, 0);
+            gpio_set_level(CONFIG_PINLED, 0);
             DELAY(BLINK_RATE/2);
 
             blink_ms -= BLINK_RATE;
@@ -210,7 +201,7 @@ static esp_err_t http_get(httpd_req_t *req, const char *buf, const char *cont_ty
 esp_err_t get_root(httpd_req_t *req)
 {
     char body[256];
-    sprintf(body, FMT_ROOT, UNITS(temp), DCMLS(temp), FHEIT(temp), UNITS(humidity), DCMLS(humidity));
+    sprintf(body, FMT_ROOT, hostname, UNITS(temp), DCMLS(temp), FHEIT(temp), UNITS(humidity), DCMLS(humidity));
     
     return http_get(req, body, "text/plain");
 }
@@ -265,8 +256,8 @@ void app_main()
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     // Set up LED
-    gpio_reset_pin(PIN_LED);
-    gpio_set_direction(PIN_LED, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(CONFIG_PINLED);
+    gpio_set_direction(CONFIG_PINLED, GPIO_MODE_OUTPUT);
 
     init_wifi();
     
